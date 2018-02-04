@@ -8,6 +8,9 @@ import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.Toast;
 
 import com.google.android.gms.common.api.ResolvableApiException;
@@ -24,12 +27,16 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 
+import java.lang.reflect.Array;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.ArrayList;
@@ -42,10 +49,14 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private Location mCurrentLocation;
     LocationRequest locationRequest;
     protected final int REQUEST_CHECK_SETTINGS = 20;
+    protected final int MIN_DISTANCE_FOR_LINE_TRACING = 2;
     protected final String REQUESTING_LOCATION_UPDATES_SETTING = "This";
     protected boolean mRequestingLocationUpdates = true;
     protected ArrayList<Location> locationsList = new ArrayList<>();    //Contains the list of locations the user has been in
     protected double totalDistance;
+    protected Polyline myPath;
+    private boolean isCustomZoom;
+    private float previousZoom;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,6 +122,25 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         if(mRequestingLocationUpdates) //This variable is saved when the user changes the activity state, IE when the device is flipped
             startLocationUpdates();
+
+        Button infoButton = findViewById(R.id.infoButton);
+        infoButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                displayInfo();
+                isCustomZoom = false;
+            }
+        });
+
+    }
+
+    /**
+     * This method shows on sceen - in a toast for instance - some useful informations about the path we've taken
+     */
+    private void displayInfo() {
+        NumberFormat formatter = new DecimalFormat("#0.00");
+        String number = formatter.format(totalDistance);
+        Toast.makeText(MapsActivity.this, "Total distance: " + number + "m", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -130,6 +160,21 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         LatLng sydney = new LatLng(-34, 151);
         mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
         mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        mMap.setOnCameraChangeListener(new GoogleMap.OnCameraChangeListener() {
+            @Override
+            public void onCameraChange(CameraPosition cameraPosition) {
+                if(previousZoom != cameraPosition.zoom) {
+                    isCustomZoom = true;
+                }
+
+                previousZoom = cameraPosition.zoom;
+            }
+        });
+    }
+
+    private void logMeThis(String text) {
+        if(BuildConfig.DEBUG)
+            Log.d("Maptest", text);
     }
 
     /**
@@ -140,23 +185,54 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         //Creates point, marker and moves map
         LatLng point = new LatLng(location.getLatitude(), location.getLongitude());
-        mMap.clear();
-        mMap.addMarker(new MarkerOptions().position(point).title("Here you are!"));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(point));
-        mMap.animateCamera(CameraUpdateFactory.zoomTo(17.0f));
+//        logMeThis("created point");
 
         if(locationsList.size() > 0) {
             //Calculates global distance
-            totalDistance = totalDistance + locationsList.get(locationsList.size() -1).distanceTo(location);
+            float latestDistance = locationsList.get(locationsList.size() -1).distanceTo(location);
+            totalDistance = totalDistance + latestDistance;
+            logMeThis("Calculated distance: " + latestDistance);
+
+            if(latestDistance > MIN_DISTANCE_FOR_LINE_TRACING)  //We don't draw polylines for less than 5m
+            {
+                //Adds location to list
+                locationsList.add(location);
+                logMeThis("drawing poly in existing list");
+                addMarkerAndPolyline(point);
+            }
         }
+        else {
+            logMeThis("Adding point in empty list");
+            //Adds location to list
+            locationsList.add(location);
+            addMarkerAndPolyline(point);    //We add the first marker for sure
+        } }
 
-        //Adds location to list
-        locationsList.add(location);
+    /**
+     * Phisically creates the marker and polyline on the map
+     * @param point
+     */
+    protected void addMarkerAndPolyline(LatLng point) {
+        mMap.clear();
+        mMap.addMarker(new MarkerOptions().position(point).title("Here you are!"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(point));
 
-        NumberFormat formatter = new DecimalFormat("#000.00");
-        String number = formatter.format(totalDistance);
+        if(!isCustomZoom)
+            mMap.animateCamera(CameraUpdateFactory.zoomTo(17.0f));
 
-        Toast.makeText(MapsActivity.this, "Total distance: " + number, Toast.LENGTH_SHORT).show();
+        if(myPath == null)
+        {
+            logMeThis("There's no polyline yet");
+            myPath = mMap.addPolyline(new PolylineOptions().clickable(false)
+                    .add(point));
+        }
+        else {
+            logMeThis("Add to existing polyline");
+            ArrayList<LatLng> pathPoints = (ArrayList)myPath.getPoints();
+            pathPoints.add(point);
+            myPath.setPoints(pathPoints);
+            mMap.addPolyline(new PolylineOptions().clickable(false)).setPoints(pathPoints);
+        }
     }
 
     protected void createLocationRequest() {
