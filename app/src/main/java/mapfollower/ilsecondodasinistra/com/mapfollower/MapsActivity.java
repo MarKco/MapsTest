@@ -19,6 +19,7 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
 import com.google.android.gms.location.LocationSettingsResponse;
 import com.google.android.gms.location.SettingsClient;
+import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
@@ -29,6 +30,11 @@ import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Map;
+
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
 
     private GoogleMap mMap;
@@ -37,7 +43,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     LocationRequest locationRequest;
     protected final int REQUEST_CHECK_SETTINGS = 20;
     protected final String REQUESTING_LOCATION_UPDATES_SETTING = "This";
-    protected boolean mRequestingLocationUpdates;
+    protected boolean mRequestingLocationUpdates = true;
+    protected ArrayList<Location> locationsList = new ArrayList<>();    //Contains the list of locations the user has been in
+    protected double totalDistance;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,9 +86,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         });
 
-        if(mRequestingLocationUpdates) //This variable is saved when the user changes the activity state, IE when the device is flipped
-            startLocationUpdates();
-
     }
 
     @Override
@@ -99,9 +104,13 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mFusedLocationClient.getLastLocation().addOnSuccessListener(new OnSuccessListener<Location>() {
             @Override
             public void onSuccess(Location location) {
-                Toast.makeText(getApplicationContext(), "Siamo in " + location.getLatitude() + " - " + location.getLongitude(), Toast.LENGTH_SHORT).show();
+                updateMapWithLocation(location);
+//                Toast.makeText(getApplicationContext(), "Siamo in " + location.getLatitude() + " - " + location.getLongitude(), Toast.LENGTH_SHORT).show();
             }
         });
+
+        if(mRequestingLocationUpdates) //This variable is saved when the user changes the activity state, IE when the device is flipped
+            startLocationUpdates();
     }
 
     /**
@@ -123,10 +132,37 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
     }
 
+    /**
+     * Updates the map with given location, places the marker, puts the location in the locationsList
+     * @param location
+     */
+    public void updateMapWithLocation(Location location) {
+
+        //Creates point, marker and moves map
+        LatLng point = new LatLng(location.getLatitude(), location.getLongitude());
+        mMap.clear();
+        mMap.addMarker(new MarkerOptions().position(point).title("Here you are!"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(point));
+        mMap.animateCamera(CameraUpdateFactory.zoomTo(17.0f));
+
+        if(locationsList.size() > 0) {
+            //Calculates global distance
+            totalDistance = totalDistance + locationsList.get(locationsList.size() -1).distanceTo(location);
+        }
+
+        //Adds location to list
+        locationsList.add(location);
+
+        NumberFormat formatter = new DecimalFormat("#000.00");
+        String number = formatter.format(totalDistance);
+
+        Toast.makeText(MapsActivity.this, "Total distance: " + number, Toast.LENGTH_SHORT).show();
+    }
+
     protected void createLocationRequest() {
         locationRequest = new LocationRequest();
-        locationRequest.setInterval(10000);
-        locationRequest.setFastestInterval(5000);
+        locationRequest.setInterval(5000);
+        locationRequest.setFastestInterval(1000);
         locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
     }
 
@@ -186,6 +222,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             super.onLocationResult(locationResult);
             for (Location location: locationResult.getLocations()
                  ) {
+                updateMapWithLocation(location);
                 //Here is where we will want to log the locations updates and possibly call the method which will trace the markers and polylines
             }
 
